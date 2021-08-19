@@ -20,4 +20,4 @@ sed -i "s/%APP_NAME%/$app_name/g" ./.apptokit.yml
 sed -i "s/%CODESPACES_NAME%/$CODESPACE_NAME/g" ./.apptokit.yml
 sed -i "s/default_env: test/default_env: playground/g" ~/.config/apptokit.yml
 
-nohup script/hook-receiver &
+nohup ./script/hook-receiver &
