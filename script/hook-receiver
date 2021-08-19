@@ -7,13 +7,26 @@ require "digest"
 require "pathname"
 require "logger"
 
-server = TCPServer.new(8077)
-server.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
+# What's a little monkey patching among friends?
+# From https://bugs.ruby-lang.org/issues/12573
+def Process.exists?(pid)
+  Process.kill(0, pid.to_i)
+  true
+rescue Errno::ESRCH # No such process
+  false
+rescue Errno::EPERM # The process exists, but you don't have permission to send the signal to it.
+  true
+end
+
 root_path = Pathname.new(__FILE__).dirname.dirname
-log_path = root_path.join("log/hooks.log")
-$log = Logger.new(log_path)
+LOG_DIR = root_path.join("log")
+HOOK_PROCESSORS_DIR = root_path.join("hook_processors")
+
+log_path = LOG_DIR.join("hooks.log")
+Log = Logger.new(log_path)
 
 pid_file = root_path.join(".hook_receiver.pid")
+
 
 if pid_file.exist?
   $log.error "PID file exists for hook receiver, is it already running? If not, delete .hook_receiver.pid and try again."
@@ -46,13 +59,40 @@ def receive_payload(connection)
 end
 
 def validate_hook_signature?(headers, _payload)
-  header_signature = headers.find { |h| h.include?("X-Hub-Signature") }.split(": ").last
+  header_signature = headers.find { |h| h.include?("X-Hub-Signature") }&.split(": ")&.last
+  return false unless header_signature
   signature = "sha1=#{OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha1'), HOOK_SECRET, payload_body)}"
   header_signature == signature
 end
 
+def dispatch_receiver(headers, payload)
+  event = headers.find { |h| h.include?("X-GitHub-Event") }&.split(": ")&.last
+  return unless event
+  action = payload["action"]
+  executable = HOOK_PROCESSORS_DIR.join("#{event}-#{action}")
+  return unless executable.exist?
+  processor_log = LOG_DIR.join("#{event}-#{action}.log")
+  
+  log "Dispatching #{executable}"
+  pid = Kernel.spawn("echo #{payload} | #{executable}", [:out, :err] => processor_log)
+  Thread.new(pid, processor_log, executable) do |pid|
+    sleep 30
+
+    if Process.exist?(pid)
+      File.write(procesord_log, "Terminating due to timeout", mode: "a")
+      log "Sending kill to #{executable} PID: #{pid}"
+      Process.kill(pid)
+    end
+  end
+  #Open3.popen2e([env,] cmd... [, opts]) {|stdin, stdout_and_stderr, wait_thr|
+  #Open3.popen2e(executable.to_s) {|stdin, stdout_and_stderr, wait_thr|
+   # pid = wait_thr.pid # pid of the started process.
+    #exit_status = wait_thr.value # Process::Status object returned.
+  #}
+end
+
 def log(msg)
-  $log.info(msg)
+  Log.info(msg)
 end
 
 log "Waiting for a webhook secret to be configured"
@@ -65,6 +105,8 @@ until secret do
 end
 HOOK_SECRET = secret.gsub('"', '')
 
+server = TCPServer.new(8077)
+server.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
 log "listening for webhooks on port 8077"
 
 begin
@@ -79,7 +121,7 @@ begin
       hash = begin
         JSON.parse(payload)
       rescue StandardError
-        "Not valid JSON"
+        log "Not valid JSON"
       end
 
       log "Received hook:"
