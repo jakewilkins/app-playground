@@ -1,0 +1,22 @@
+{
+    "forwardPorts": [8075, 8875, 8878, 8077],
+    "portsAttributes": {
+        "8075": {
+            "label": "OAuth Callback",
+            "onAutoForward": "notify"
+        },
+        "8875": {
+            "label": "Manifest Callback",
+            "onAutoForward": "notify"
+        },
+        "8878": {
+            "label": "Manifest Template Callback",
+            "onAutoForward": "notify"
+        },
+        "8077": {
+            "label": "Webhook Receiver",
+            "onAutoForward": "notify"
+        }
+    },
+    "postCreateCommand": ".devcontainer/on-create-command.sh",
+}
