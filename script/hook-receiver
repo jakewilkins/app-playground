@@ -17,8 +17,6 @@ require "logger"
 require "json"
 require "openssl"
 
-Process.daemon(true)
-
 # What's a little monkey patching among friends?
 # From https://bugs.ruby-lang.org/issues/12573
 def Process.exists?(pid)
@@ -31,15 +29,19 @@ rescue Errno::EPERM # The process exists, but you don't have permission to send 
 end
 
 root_path = Pathname.new(__FILE__).dirname.dirname
-LOG_DIR = root_path.join("log")
 HOOK_PROCESSORS_DIR = root_path.join("hook_processors")
-
+PID_FILE = root_path.join(".hook_receiver.pid")
+LOG_DIR = root_path.join("log")
 LOG_PATH = LOG_DIR.join("hooks.log")
-Log = Logger.new(LOG_PATH)
 
-def log(msg, level: :debug)
-  Log.send(level, msg)
+if %w(stop restart).include?(ARGV[0]) && PID_FILE.exist?
+  pid = PID_FILE.read
+  Process.kill("INT", pid.to_i)
+  exit 0 if ARGV[0] == "stop"
 end
+
+Process.daemon(true)
+Log = Logger.new(LOG_PATH)
 
 if ENV["DEBUG"]
   Log.level = Logger::DEBUG
@@ -47,11 +49,14 @@ else
   Log.level = Logger::INFO
 end
 
+def log(msg, level: :debug)
+  Log.send(level, msg)
+end
+
 PROCESSOR_LOGS = Hash.new do |hash, key|
   hash[key] = File.open(LOG_DIR.join("#{key}.log"), "a+")
 end
 
-PID_FILE = root_path.join(".hook_receiver.pid")
 if PID_FILE.exist?
   log "PID file exists for hook receiver, is it already running? If not, delete .hook_receiver.pid and try again.", level: :error
   exit 1
