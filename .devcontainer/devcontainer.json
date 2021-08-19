@@ -19,4 +19,5 @@
         }
     },
     "postCreateCommand": ".devcontainer/on-create-command.sh",
+    "postStartCommand": "nohup script/hook-receiver &",
 }
