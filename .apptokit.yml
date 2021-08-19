@@ -1,0 +1,33 @@
+---
+
+# Specify a default env to use if you have multiple
+default_env: playground
+
+#
+# App Manifest configurations
+#
+
+# the name of the environment can be anything, same as above.
+#
+# The following wil be provided automatically via the App Manifest
+# creation flow
+# 
+# - app_id
+# - installation_id
+# - client_id
+# - client_secret
+# - private_key
+playground:
+  # Any of Apptokit config keysare valid here
+  manifest:
+    name: "%APP_NAME%"
+    callback_url: https://%CODESPACES_NAME%-8075.githubpreview.dev/callback
+    hook_attributes:
+      url: https://%CODESPACES_NAME%-8077.githubpreview.dev/hooks
+    # Specify the permissions to set your app up with here
+    permissions:
+      metadata: read
+      issues: write
+    # Subscribe to events for your app here
+    events:
+      - issues
