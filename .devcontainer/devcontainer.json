@@ -19,5 +19,5 @@
         }
     },
     "postCreateCommand": ".devcontainer/on-create-command.sh",
-    "postStartCommand": "nohup ${localWorkspaceFolder}/script/hook-receiver &",
+    "postStartCommand": "cd ${localWorkspaceFolder} && nohup ./script/hook-receiver &",
 }
