@@ -25,15 +25,18 @@ HOOK_PROCESSORS_DIR = root_path.join("hook_processors")
 log_path = LOG_DIR.join("hooks.log")
 Log = Logger.new(log_path)
 
-pid_file = root_path.join(".hook_receiver.pid")
+PID_FILE = root_path.join(".hook_receiver.pid")
 
 
-if pid_file.exist?
+if PID_FILE.exist?
   $log.error "PID file exists for hook receiver, is it already running? If not, delete .hook_receiver.pid and try again."
   exit 1
 end
 
-pid_file.write("#{Process.pid}")
+PID_FILE.write("#{Process.pid}")
+at_exit do
+  PID_FILE.unlink if PID_FILE.exist?
+end
 
 def read_chunk(connection)
   chunk = []
@@ -78,7 +81,7 @@ def dispatch_receiver(headers, payload)
   Thread.new(pid, processor_log, executable) do |pid|
     sleep 30
 
-    if Process.exist?(pid)
+    if Process.exists?(pid)
       File.write(procesord_log, "Terminating due to timeout", mode: "a")
       log "Sending kill to #{executable} PID: #{pid}"
       Process.kill(pid)
