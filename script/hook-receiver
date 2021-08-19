@@ -1,0 +1,101 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "socket"
+require 'pp'
+require "digest"
+require "pathname"
+require "logger"
+
+server = TCPServer.new(8077)
+server.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
+root_path = Pathname.new(__FILE__).dirname.dirname
+log_path = root_path.join("log/hooks.log")
+$log = Logger.new(log_path)
+
+pid_file = root_path.join(".hook_receiver.pid")
+
+if pid_file.exist?
+  $log.error "PID file exists for hook receiver, is it already running? If not, delete .hook_receiver.pid and try again."
+  exit 1
+end
+
+pid_file.write("#{Process.pid}")
+
+def read_chunk(connection)
+  chunk = []
+  loop do
+    line = connection.gets
+    break if line == "\r\n"
+
+    chunk << line
+  rescue EOFError
+    break
+  end
+  chunk
+end
+
+def receive_payload(connection)
+  payload = ""
+  loop do
+    payload += connection.read_nonblock(1024 * 16)
+  rescue Errno::EAGAIN, EOFError
+    break
+  end
+  payload
+end
+
+def validate_hook_signature?(headers, _payload)
+  header_signature = headers.find { |h| h.include?("X-Hub-Signature") }.split(": ").last
+  signature = "sha1=#{OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha1'), HOOK_SECRET, payload_body)}"
+  header_signature == signature
+end
+
+def log(msg)
+  $log.info(msg)
+end
+
+log "Waiting for a webhook secret to be configured"
+secret = nil
+
+until secret do
+  secret = `apptokit manifest show | jq .webhook_secret`.chomp
+  secret = nil if secret == "null"
+  sleep 5 unless secret
+end
+HOOK_SECRET = secret.gsub('"', '')
+
+log "listening for webhooks on port 8077"
+
+begin
+  Socket.accept_loop(server) do |connection|
+    headers = read_chunk(connection)
+
+    if headers.first == "POST / HTTP/1.1\r\n"
+      payload = receive_payload(connection)
+
+      valid_signature = validate_hook_signature(headers, payload)
+
+      hash = begin
+        JSON.parse(payload)
+      rescue StandardError
+        "Not valid JSON"
+      end
+
+      log "Received hook:"
+      log headers.join
+      log "  -- Webhook signature validated --" if valid_signature
+      log "received payload:\n"
+      log hash.pretty_inspect
+    else
+      log headers.join("")
+      log "this doesn't look like a webhook, skipping"
+    end
+
+    connection.write "HTTP/1.1 204 No Content\r\n"
+    connection.close
+  end
+rescue Interrupt
+  log "bye!"
+  exit 0
+end
