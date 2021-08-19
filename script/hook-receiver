@@ -1,11 +1,21 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "socket"
+require "bundler/inline"
+
+gemfile do
+  source "https://rubygems.org"
+  gem "sinatra"
+end
+
+require "sinatra"
+
 require 'pp'
 require "digest"
 require "pathname"
 require "logger"
+require "json"
+require "openssl"
 
 # What's a little monkey patching among friends?
 # From https://bugs.ruby-lang.org/issues/12573
@@ -22,14 +32,26 @@ root_path = Pathname.new(__FILE__).dirname.dirname
 LOG_DIR = root_path.join("log")
 HOOK_PROCESSORS_DIR = root_path.join("hook_processors")
 
-log_path = LOG_DIR.join("hooks.log")
-Log = Logger.new(log_path)
+LOG_PATH = LOG_DIR.join("hooks.log")
+Log = Logger.new(LOG_PATH)
+
+def log(msg, level: :debug)
+  Log.send(level, msg)
+end
+
+if ENV["DEBUG"]
+  Log.level = Logger::DEBUG
+else
+  Log.level = Logger::INFO
+end
+
+PROCESSOR_LOGS = Hash.new do |hash, key|
+  hash[key] = File.open(LOG_DIR.join("#{key}.log"), "a+")
+end
 
 PID_FILE = root_path.join(".hook_receiver.pid")
-
-
 if PID_FILE.exist?
-  $log.error "PID file exists for hook receiver, is it already running? If not, delete .hook_receiver.pid and try again."
+  log "PID file exists for hook receiver, is it already running? If not, delete .hook_receiver.pid and try again.", level: :error
   exit 1
 end
 
@@ -38,67 +60,48 @@ at_exit do
   PID_FILE.unlink if PID_FILE.exist?
 end
 
-def read_chunk(connection)
-  chunk = []
-  loop do
-    line = connection.gets
-    break if line == "\r\n"
-
-    chunk << line
-  rescue EOFError
-    break
-  end
-  chunk
+def find_header_value(name, headers)
+  headers[name] || headers[name.downcase] || headers["HTTP_#{name.upcase}".gsub('-', '_')]
 end
 
-def receive_payload(connection)
-  payload = ""
-  loop do
-    payload += connection.read_nonblock(1024 * 16)
-  rescue Errno::EAGAIN, EOFError
-    break
-  end
-  payload
-end
-
-def validate_hook_signature?(headers, _payload)
-  header_signature = headers.find { |h| h.include?("X-Hub-Signature") }&.split(": ")&.last
+def validate_hook_signature(headers, payload_body)
+  header_signature = find_header_value("X-Hub-Signature", headers)
+  signature = "sha1=#{OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha1'), HOOK_SECRET, payload_body.to_json)}"
+  log "Comparing header: #{header_signature.inspect} to generated: #{signature.inspect}"
   return false unless header_signature
-  signature = "sha1=#{OpenSSL::HMAC.hexdigest(OpenSSL::Digest.new('sha1'), HOOK_SECRET, payload_body)}"
   header_signature == signature
 end
 
-def dispatch_receiver(headers, payload)
-  event = headers.find { |h| h.include?("X-GitHub-Event") }&.split(": ")&.last
-  return unless event
+def dispatch_processor(headers, payload)
+  event = find_header_value("X-GitHub-Event", headers)
   action = payload["action"]
   executable = HOOK_PROCESSORS_DIR.join("#{event}-#{action}")
-  return unless executable.exist?
-  processor_log = LOG_DIR.join("#{event}-#{action}.log")
-  
-  log "Dispatching #{executable}"
-  pid = Kernel.spawn("echo #{payload} | #{executable}", [:out, :err] => processor_log)
-  Thread.new(pid, processor_log, executable) do |pid|
+
+  executable_available = executable.exist?
+  if executable_available
+    log "Dispatching #{executable}", level: :info
+  else
+    log "No processor configured for #{event.inspect}-#{action.inspect}", level: :info
+    return
+  end
+
+  processor_log = PROCESSOR_LOGS["#{event}-#{action}"]
+  pid = Kernel.spawn("echo '#{payload.to_json}' | #{executable}", [:out, :err] => processor_log)
+
+  # Setup a timeout to clearout hung processes
+  Thread.new(pid, processor_log, executable) do |pid, processor_log, executable|
     sleep 30
 
     if Process.exists?(pid)
-      File.write(procesord_log, "Terminating due to timeout", mode: "a")
-      log "Sending kill to #{executable} PID: #{pid}"
-      Process.kill(pid)
+      processor_log.puts("Terminating due to timeout")
+      processor_log.flush
+      Logger.new(LOG_PATH).debug "Sending kill to #{executable} PID: #{pid}"
+      Process.kill("INT", pid)
     end
   end
-  #Open3.popen2e([env,] cmd... [, opts]) {|stdin, stdout_and_stderr, wait_thr|
-  #Open3.popen2e(executable.to_s) {|stdin, stdout_and_stderr, wait_thr|
-   # pid = wait_thr.pid # pid of the started process.
-    #exit_status = wait_thr.value # Process::Status object returned.
-  #}
 end
 
-def log(msg)
-  Log.info(msg)
-end
-
-log "Waiting for a webhook secret to be configured"
+log "Waiting for a webhook secret to be configured", level: :info
 secret = nil
 
 until secret do
@@ -108,38 +111,34 @@ until secret do
 end
 HOOK_SECRET = secret.gsub('"', '')
 
-server = TCPServer.new(8077)
-server.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
-log "listening for webhooks on port 8077"
+log "listening for webhooks on port 8077", level: :info
+
+post("/hooks") do
+  log "Receiving hook"
+  request.body.rewind  # in case someone already read it
+  body = request.body.read
+  log "Received body: #{body}"
+  log "Received headers: #{request.env}"
+
+  hash = begin
+    JSON.parse body
+  rescue StandardError => boom
+    log "Not valid JSON: #{boom.class} - #{boom.message}"
+    halt([204, {}, []])
+  end
+
+  unless validate_hook_signature(request.env, hash)
+    log "Invalid webhook signature, skipping processing", level: :info
+    halt(204, {}, [])
+  end
+
+  dispatch_processor(request.env, hash)
+
+  [204, {}, []]
+end
 
 begin
-  Socket.accept_loop(server) do |connection|
-    headers = read_chunk(connection)
-
-    if headers.first == "POST / HTTP/1.1\r\n"
-      payload = receive_payload(connection)
-
-      valid_signature = validate_hook_signature(headers, payload)
-
-      hash = begin
-        JSON.parse(payload)
-      rescue StandardError
-        log "Not valid JSON"
-      end
-
-      log "Received hook:"
-      log headers.join
-      log "  -- Webhook signature validated --" if valid_signature
-      log "received payload:\n"
-      log hash.pretty_inspect
-    else
-      log headers.join("")
-      log "this doesn't look like a webhook, skipping"
-    end
-
-    connection.write "HTTP/1.1 204 No Content\r\n"
-    connection.close
-  end
+  Sinatra::Application.run!(port: 8077)
 rescue Interrupt
   log "bye!"
   exit 0
