@@ -1,6 +1,6 @@
 #!/bin/bash
 
-playgroud_dir=$(pwd)
+playground_dir=$(pwd)
 
 hash apptokit 2>/dev/null || {
   cd /workspaces

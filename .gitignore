@@ -57,3 +57,4 @@ build-iPhoneSimulator/
 .apptokit.yml
 log/*.log
 .hook_receiver.pid
+nohup.out
