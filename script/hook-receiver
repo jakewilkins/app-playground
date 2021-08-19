@@ -17,6 +17,8 @@ require "logger"
 require "json"
 require "openssl"
 
+Process.daemon(true)
+
 # What's a little monkey patching among friends?
 # From https://bugs.ruby-lang.org/issues/12573
 def Process.exists?(pid)
@@ -103,10 +105,15 @@ end
 
 log "Waiting for a webhook secret to be configured", level: :info
 secret = nil
+apptokit = ""
+until !apptokit.empty? do
+  apptokit = `which apptokit 2>/dev/null`.chomp
+  sleep 0.5
+end
 
 until secret do
   secret = `apptokit manifest show | jq .webhook_secret`.chomp
-  secret = nil if secret == "null"
+  secret = nil if secret == "null" || secret == ""
   sleep 5 unless secret
 end
 HOOK_SECRET = secret.gsub('"', '')
@@ -140,6 +147,6 @@ end
 begin
   Sinatra::Application.run!(port: 8077)
 rescue Interrupt
-  log "bye!"
+  log "bye!", level: :info
   exit 0
 end

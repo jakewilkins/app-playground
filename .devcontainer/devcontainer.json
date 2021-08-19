@@ -19,5 +19,5 @@
         }
     },
     "postCreateCommand": ".devcontainer/on-create-command.sh",
-    "postAttachCommand": ".devcontainer/post-attach-command.sh",
+    "postAttachCommand": "./script/hook-receiver",
 }
