@@ -1,20 +1,28 @@
-# app-playground
+# App Playground
+
 This is a Codespaces enabled place to play with and debug GitHub Apps.
 
-The [apptokit](https://github.com/jakewilkins/apptokit) CLI utility comes installed and there is a `.apptokit.yml` provided which is setup to work with Codespaces.
+The goal is to provide a jumpstart to working with a GitHub App. This can be especially useful when testing new ideas or submitting bug reports.
+
+The [apptokit](https://github.com/jakewilkins/apptokit) CLI utility comes installed and there is a `.apptokit.yml` provided which will be setup to work with Codespaces.
 
 ## First steps
 
 - Create a repo using this template
 - Launch into a codespace
-- Make the /hooks port public (8077)
-- Sometimes the hook receiver doesn't start automatically, so run `script/hook-receiver` and ignore it if it complains about a PID file existing.
 - Configure the permissions your App needs in the `.apptokit.yml` file.
-- run `apptokit manifest setup`
-- ????
+- run [`apptokit manifest setup`]((https://docs.github.com/en/developers/apps/building-github-apps/creating-a-github-app-from-a-manifest)
+- 🥳
 
-If you're familiar with the [Manifest Creation flow](https://docs.github.com/en/developers/apps/building-github-apps/creating-a-github-app-from-a-manifest) you can use this
-by updating the settings in `.apptokit.yml` and the `apptokit manifest setup` command.
+At this point, you have a Codespace setup where you can use a GitHub App to interact with GitHub's API. You can make one-off requests with `apptokit curl`, receive webhooks*, walk through the OAuth flow, whatever you need to do.
+
+The `scripts` folder is yours to add whatever you need, script a reproduction of a bug report or write a demo of a new feature.
+
+### Web Hooks
+
+There should be a process running to receive and log hooks, if this worked correctly there will be a `.hook_receiver.pid` in your project root. If this doesn't exist, don't worry, run `script/hook-receiver` to start it.
+
+Additionally, you'll need to make the webhook port (8077) public in the codespaces port settings.
 
 Hooks received are logged to `logs/hooks.log`.
 
