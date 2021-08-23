@@ -11,7 +11,7 @@ The [apptokit](https://github.com/jakewilkins/apptokit) CLI utility comes instal
 - Create a repo using this template
 - Launch into a codespace
 - Configure the permissions your App needs in the `.apptokit.yml` file.
-- run [`apptokit manifest setup`]((https://docs.github.com/en/developers/apps/building-github-apps/creating-a-github-app-from-a-manifest)
+- run [`apptokit manifest setup`](https://docs.github.com/en/developers/apps/building-github-apps/creating-a-github-app-from-a-manifest)
 - 🥳
 
 At this point, you have a Codespace setup where you can use a GitHub App to interact with GitHub's API. You can make one-off requests with `apptokit curl`, receive webhooks*, walk through the OAuth flow, whatever you need to do.
