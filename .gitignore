@@ -58,3 +58,4 @@ build-iPhoneSimulator/
 log/*.log
 .hook_receiver.pid
 nohup.out
+.devcontainer/config/apptokit/.*_keycache
