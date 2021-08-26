@@ -2,6 +2,10 @@
 
 playground_dir=$(pwd)
 
+
+mkdir -p "$playground_dir/.devcontainer/config/apptokit"
+ln -s "$playground_dir/.devcontainer/config/apptokit" "$HOME/.config/apptokit"
+
 hash apptokit 2>/dev/null || {
   cd /workspaces
 
