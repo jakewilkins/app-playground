@@ -1,5 +1,4 @@
 {
-    "forwardPorts": [8075, 8875, 8878, 8077],
     "portsAttributes": {
         "8075": {
             "label": "OAuth Callback",
